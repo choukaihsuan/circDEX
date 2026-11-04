@@ -14,6 +14,8 @@ abstract: >-
   self-contained HTML report.
 type: software
 license: MIT
+version: "1.0.0"
+date-released: "2026-11-04"
 authors:
   - family-names: Chou
     given-names: Kai-Hsuan
