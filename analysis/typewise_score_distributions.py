@@ -21,7 +21,9 @@ import pandas as pd
 from scipy import stats
 
 sys.path.insert(0, "/home/choukaihsuan/circRNA_agent/scripts")
+sys.path.insert(0, "/home/choukaihsuan/circRNA_agent/benchmark/scripts")
 import rank_biomarkers as rb  # noqa: E402  (reuse _minmax, not reimplemented)
+import accuracy_benchmark as ab  # noqa: E402  (reuse _parse_id, not reimplemented)
 
 BASE = "/home3/choukaihsuan"
 DATASETS = ["GSE113230", "GSE133998", "SRP156355", "GSE77509", "GSE130078",
@@ -262,6 +264,65 @@ def main():
                       "p_within_queried": describe(p_queried)}
         print(f"  {gse:15s} I={row['Type_I']}")
         print(f"  {'':15s} II={row['Type_II']}")
+
+    # ── (g) length confound check for the mirna signal ─────────────────────
+    # n_mirna is a count of predicted binding sites (CircInteractome/ENCORI);
+    # predicted site count scales with sequence length -- a longer sequence
+    # has more positions for a seed match. mirna_norm only min-maxes within
+    # each dataset's own significant set; it is never length-normalized. If
+    # Type_II circRNAs are simply longer, and n_mirna correlates with length
+    # within a dataset, the mirna direction found in (d) could be a length
+    # artifact rather than a regulatory signal -- checked directly, not
+    # assumed either way.
+    print("\n" + "=" * 70)
+    print("(g) Length confound check: Type_I vs Type_II circRNA length, and length-vs-n_mirna correlation")
+    print("=" * 70)
+    MIRNA_USABLE = ["GSE113230", "SRP156355", "GSE77509", "GSE130078", "GSE248612",
+                    "GSE221107", "PRJNA553289", "GSE121842", "GSE136569", "GSE143797"]
+    length_diffs = []
+    for gse in MIRNA_USABLE:
+        bm = bm_cache[gse]
+        df = bm.copy()
+        parsed = df["circ_id"].apply(ab._parse_id)
+        df["length"] = parsed.apply(lambda t: (t[2] - t[1]) if t is not None else np.nan)
+        g1 = df.loc[df["Type"] == "Type_I", "length"].dropna()
+        g2 = df.loc[df["Type"] == "Type_II", "length"].dropna()
+        n1, n2 = len(g1), len(g2)
+        entry = {"n1": n1, "n2": n2}
+        if n1 >= MIN_N_FOR_TEST and n2 >= MIN_N_FOR_TEST:
+            entry["median_I"] = round(float(g1.median()), 1)
+            entry["median_II"] = round(float(g2.median()), 1)
+            entry["diff_II_minus_I"] = round(entry["median_II"] - entry["median_I"], 1)
+            try:
+                _, p = stats.mannwhitneyu(g1, g2, alternative="two-sided")
+                entry["mwu_p"] = round(float(p), 6)
+            except ValueError:
+                entry["mwu_p"] = None
+            length_diffs.append(entry["diff_II_minus_I"])
+
+        # Spearman(n_mirna, length) within this dataset's queried subset
+        # (both types combined -- asking whether length predicts n_mirna at
+        # all, not a Type-specific question).
+        qd = df.loc[df["interaction_queried"], ["n_mirna", "length"]].dropna()
+        rho_entry = {"n_queried": len(qd)}
+        if len(qd) >= MIN_N_FOR_TEST:
+            rho, rho_p = stats.spearmanr(qd["n_mirna"], qd["length"])
+            rho_entry["spearman_rho"] = round(float(rho), 4)
+            rho_entry["spearman_p"] = round(float(rho_p), 6)
+
+        print(f"  {gse:15s} length: {entry}")
+        print(f"  {'':15s} n_mirna~length Spearman: {rho_entry}")
+
+    print(f"\n  length usable datasets: {len(length_diffs)}/{len(MIRNA_USABLE)}, diffs={length_diffs}")
+    if len(length_diffs) >= 2 and any(d != 0 for d in length_diffs):
+        try:
+            w, p = stats.wilcoxon(length_diffs)
+            print(f"  Wilcoxon signed-rank on length diffs: W={w:.2f}, p={p:.6g}")
+        except ValueError as e:
+            print(f"  Wilcoxon failed: {e}")
+    n_pos = sum(1 for d in length_diffs if d > 0)
+    n_neg = sum(1 for d in length_diffs if d < 0)
+    print(f"  direction: {n_pos} datasets II>I (longer), {n_neg} datasets II<I (shorter)")
 
 
 if __name__ == "__main__":
