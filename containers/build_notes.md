@@ -362,3 +362,45 @@ hunks with a confirmed behavioral effect on find_circ's own internal
 breakpoint filtering -- but that effect has zero measured impact on the
 one paper claim (Table 5's containment relationship) that touches
 find_circ's output at all.
+
+## find_circ patch audit, item 2: Table 5's own TP/FP numbers (2026-11-04)
+
+The containment claim (above) being unaffected doesn't by itself clear
+Table 5, whose title is "Detection performance of three consensus
+strategies" -- it also reports CirComPara2_4tools's own TP/FP, and the
+137/50/60 loci (Hs68/NCI-H23/SW480) where find_circ is 1-of-2 supporting
+tools are IN that call set, contributing to those numbers. Hs68's 137/1030
+is 13.3% of the call set -- not negligible on its face.
+
+Checked with zero new computation (ground truth labels for those loci are
+already in `.../benchmark/rnaser/ground_truth.tsv` per cell line;
+`accuracy_benchmark.py`'s own `evaluate()` was called twice -- once on the
+full existing call set, once with those loci removed -- never re-running
+any detection tool):
+
+| Cell line | (a) full (current Table 5) TP/FP | (b) extreme lower bound (find_circ untrusted) TP/FP | ΔPrecision | ΔRecall | ΔF1 |
+|---|---|---|---|---|---|
+| Hs68 | 798/111 | 702/84 | −0.0152 | +0.0298 | +0.0360 |
+| NCI-H23 | 1344/724 | 1325/714 | +0.0001 | +0.0059 | +0.0045 |
+| SW480 | 861/1208 | 846/1185 | −0.0004 | +0.0080 | +0.0034 |
+
+(a) reproduces the numbers currently reported for CirComPara2_4tools; (b)
+is the extreme case of treating every locus find_circ is necessary for as
+fully untrustworthy. The true number (whichever direction find_circ's
+miscalibration actually pushes, still not determined and not needed to
+determine) lies between (a) and (b). All three cell lines: well under 4
+percentage points of movement in Precision/Recall/F1, including Hs68
+despite its 13.3% share of the call set -- Precision barely moves (and
+moves in the opposite direction from what a naive "find_circ inflates FP"
+story would predict), because the affected loci split between TP and FP
+roughly in proportion to the rest of the set rather than being
+disproportionately one or the other.
+
+This does not change any number in the published thesis -- the paper is
+already submitted and no number is being altered here, for this or any
+other reason. It is recorded for the submission-track revision: §4's own
+wording already frames the CirComPara2 relationship as "structural rather
+than comparative," so disclosure (noting find_circ's patch status in the
+methods text) rather than a numeric change is the appropriate response for
+that version, consistent with how this project has handled every other
+already-submitted-paper finding this session.
