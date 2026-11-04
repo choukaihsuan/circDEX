@@ -443,3 +443,48 @@ artifact for a different purpose (see "Two images" above).
 - `docker image inspect` confirms empty `RepoDigests` (no registry
   interaction occurred) and the image exists only in this machine's local
   Docker daemon.
+
+## Image A pushed: `choukaihsuan/circrna-pipeline:thesis-2026-07` (2026-11-04)
+
+Pushed the exact image built and 28/28-verified above (no rebuild) --
+`circdex-image-a:thesis-2026-07` re-tagged as
+`choukaihsuan/circrna-pipeline:thesis-2026-07` and pushed to the existing
+Docker Hub repository (same repo `1.0.0`/`1.0.1`/`1.1.0-candidate` already
+live in, distinguished by tag, not a new repository).
+
+**Digest, recorded immediately after push, not deferred** (the whole
+point of pinning `1.0.1`'s digest earlier this project was that the paper
+recorded it at push time -- doing the same thing a second time, now, for
+this tag):
+
+```
+sha256:508f7ed9e5034b184c695f9062a4317c9ff113367f8683deb9c4b0a570e0b630
+```
+
+Cross-checked two ways, both agree: the digest `docker push` printed to
+stdout, and a separate live query of the Docker Hub Registry API
+(`GET /v2/repositories/choukaihsuan/circrna-pipeline/tags/thesis-2026-07/`)
+immediately after. This is now `thesis-2026-07`'s permanent identifier --
+the tag itself could in principle be re-pushed later (exactly the risk
+this project's own audit found and fixed for `1.0.1`'s digest); this
+value is what to check it against if that's ever in doubt.
+
+**Honest note on the `LABEL org.opencontainers.image.source`**: this
+image's `org.opencontainers.image.source` points at
+`https://github.com/choukaihsuan/circRNA_agent` -- the repository had not
+yet been renamed to `circDEX` at push time. GitHub redirects the old URL
+automatically on rename, so the label still resolves; this is recorded
+here as a known, deliberate fact about this specific pushed artifact, not
+corrected by rebuilding, per the decision to push first and document
+rather than rebuild for a cosmetic label change alone.
+
+**The repo, not the image, is the durable reproducibility artifact.**
+Zenodo archives a GitHub source snapshot, not anything on Docker Hub --
+binding `v1.0.0` to Zenodo preserves the repo's contents (the explicit
+spec, the pip-only list, the find_circ patch, the digest-pinned
+Dockerfile), not this pushed image. The image is a convenience, built
+from that recipe; if Docker Hub ever prunes an inactive image, nothing
+about reproducibility is lost, because the recipe needed to rebuild it
+identically already lives in the repo that Zenodo preserves. Anyone
+treating the Docker Hub image as the authoritative artifact rather than
+the repo's recipe would be relying on the wrong thing.
