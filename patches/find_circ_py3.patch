@@ -86,9 +86,20 @@
 #     in modern numpy) with a plain Python `sum(x != y for x, y in zip(a,b))`,
 #     also handling unequal-length inputs instead of letting the original
 #     silently rely on numpy's elementwise broadcast
-#   - module-level `import numpy as _np` added (the inner function that
-#     referenced `_np` in the original relied on an import that was only
-#     ever added inside a different, unrelated function's scope)
+#   - module-level `import numpy as _np` added -- this is now DEAD CODE,
+#     not a random leftover line: an intermediate (not the final) version
+#     of `mismatches()` used `_np.frombuffer(...)` directly, and a crash
+#     log on the server from that stage
+#     (GSE55872_results/circRNA/SRR444655/find_circ/find_circ.log, dated
+#     2026-06-04, the same day as this patch) shows exactly that call
+#     failing with `NameError: name '_np' is not defined` before this
+#     import was added. `mismatches()` was then rewritten again to the
+#     plain-Python version actually in this diff, which never references
+#     `_np` -- confirmed by grepping the full current find_circ.py on the
+#     server: `_np` appears ONLY on this import line, nowhere else. Kept
+#     as-is (not removed) because the server's actual running file has
+#     it; removing it would change the sha256 this patch is asserted
+#     against.
 #
 # Not touched: this patch does not change find_circ's detection algorithm,
 # its CLI, or its output format/columns -- only what was necessary to make
