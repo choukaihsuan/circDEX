@@ -1072,6 +1072,7 @@ $PY $SCRIPTS/generate_comparison_report.py \
 | Monitor 輪詢腳本誤判「檔案存在」＝「這次執行剛產生的新檔案」| 用 `[ -f "$REPORT" ]` 判斷 benchmark 是否跑完，但 `comparison_report.html` 是舊有輸出（上次成功執行留下的），只要檔案存在就會誤觸發「完成」警報，即使這次執行才剛啟動 1 分鐘 | 改用 `stat -c %Y "$REPORT"` 取得檔案 mtime，與本次啟動時間（epoch）比較，只有 mtime 晚於啟動時間才算「這次執行產生的新檔案」；任何長跑背景監控只要目標是「某個可能已存在的輸出檔」，都應該用時間戳比對而非單純存在性檢查 |
 | Snakemake 將「沒有 upstream 錯誤」的 dry-run 誤判為健康 | 2026-10-04 的 dry-run 目標用 `~/x_results`，configfile 的 `results_dir` 為 `/home3/x_results`；兩者字串不同，Snakemake 不做等價比對，`Nothing to be done` 只代表「這個不存在的目標不需要做事」 | 目標路徑必須與 configfile 的 `results_dir` 完全相同；dry-run 結果只有在確認目標確實落在 `results_dir` 下後才有意義（2026-10-04 已重跑修正） |
 | 上游設定檔被 touch 後，全部下游 job 被重跑（與 .smk code-hash 不同機制） | rerun trigger 包含 mtime：`config/ciriquant.yaml`（2026-07-29）比 CIRIquant GTF（2026-07-16）新，所有 `ciriquant` job 被判為過期，進而帶動下游；被刪除的 FASTQ 則使下載與 trim 也被重新規劃 | 不以 `ancient()` 壓制（會讓參考基因組更換靜默通過）；拆分 `ciriquant.yaml` 為機器本地工具路徑與科學性參考路徑是獨立議題；報告批次改用 `--allowed-rules` 限定 rule，上游缺輸入即報錯 |
+| pandas 聚合運算（`.median()`/`.mean()`/`.sum()`）在多欄 DataFrame 上靜默回傳 Series，不是 scalar | `analysis/typewise_score_distributions.py` 的比較函式本該收到單一欄位的 Series，卻誤傳整個多欄 DataFrame；`df.median()` 不報錯，直接回傳「每欄各自的中位數」組成的 Series，後面 `round(float(...), 4)` 才在 `float(Series)` 這一步炸出 `TypeError`——若當時後面接的是别的運算（例如直接存進字典、或湊巧只用其中一個數字），很可能連 `TypeError` 都不會出現，錯誤會完全沉默 | 任何聚合運算呼叫前，先確認輸入是單一欄位的 Series，不要依賴型別錯誤在下游某處剛好炸出來——那次是兩輪都靠實際執行才抓到（2026-11-04），讀程式碼看不出來；通用寫法：`assert isinstance(x, pd.Series)` 或明確 `df[col]` 取值後再聚合，不要把整個 filtered DataFrame 傳給預期吃 Series 的函式 |
 
 ---
 
