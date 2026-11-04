@@ -279,3 +279,86 @@ isn't forgotten when one is written. If Image A is ever pushed publicly
 and bound to a Zenodo DOI, this wording is worth a second read by someone
 with more licensing background before that happens -- not a blocker, but
 worth asking.
+
+## find_circ patch: the non-mechanical hunks, investigated and closed (2026-11-04)
+
+6 of `find_circ_py3.patch`'s 21 hunks are not pure py2→py3 syntax
+(see `patches/find_circ_py3.patch`'s own "What this patch does" section
+for the mechanical ones). Each was checked against the real server
+environment and real benchmark outputs -- no detection tool was re-run for
+any of this, only static reading, existing index/stats files, and the
+project's own `consensus_filter.py` re-applied to already-generated
+per-tool outputs (a few seconds of pure vote-counting, not a pipeline
+run):
+
+- **Lowercase bases in `complement()`** -- excluded. `COMPLEMENT`'s
+  definition has both cases (`'a':'t'` and `'A':'T'`, etc.); the old code
+  `COMPLEMENT[x]` never raised KeyError on a lowercase base. The premise
+  (soft-masked hg19 -> lowercase repeats -> KeyError) doesn't hold; no need
+  to even check the genome FASTA's masking.
+- **`mismatches()` rewrite (unequal-length branch)** -- CONFIRMED to
+  matter, merges with the next item below.
+- **`skip_char` / removed `.decode('string_escape')`** -- CONFIRMED, and
+  systemic, not conditional. Read directly from the real index used in
+  production (`hg19.fa.byo_index`): `chr1	6	50	1	'\n'	249250621`
+  -- `skipchar[1:-1]` is the literal two-character string `\n`, not a real
+  `0x0A` byte (`repr(chr(10))[1:-1] == '\\n' != chr(10)`, checkable with no
+  server access at all). The old `.decode('string_escape')` would have
+  un-escaped it back to a real newline; the new code doesn't, so the
+  `.replace()` meant to strip line-wrap newlines out of a genomic slice
+  never matches a real newline. Confirmed empirically too: fetching a
+  116bp span (the actual flank size used by this pipeline's default
+  `-a 20 -m 2` on 150bp reads) from the real `hg19.fa` at three different
+  line-relative offsets returned 118 characters every time, with a real
+  embedded `0x0A` each time -- any fetch crossing hg19's standard 50-char
+  line wrap (effectively every flank fetch at this size) is affected, not
+  a rare edge case.
+  Consequence: `A_flank`/`B_flank` (which go through this accessor) come
+  back the wrong length and polluted; `internal` (sliced directly from the
+  read, never touches this accessor) does not. `mismatches(spliced,
+  internal)` therefore hits its unequal-length branch
+  (`return abs(len(a)-len(b))`) on real data -- `dist` becomes a function
+  of how many line-wrap boundaries a region crosses, not sequence
+  similarity, and `dist <= maxdist` is find_circ's own breakpoint filter.
+- **Triplicated `if A is None or B is None: break`** -- CONFIRMED real
+  (not dead code) in principle: the loop's source is
+  `enumerate(grouper(2, sam))`, `grouper()` uses `zip_longest(fillvalue=
+  None)` with no structural guarantee of an even record count. But
+  excluded in practice for the three cell lines this project actually
+  used it on: `N['total'] += 1` runs before the None-check, so if the
+  break ever fired, the sum of every other category in `find_circ_stats.txt`
+  would fall 1 short of `total`. Checked all three (Hs68/NCI-H23/SW480):
+  every category sums to exactly `total`, zero difference, for all three.
+  The break never fired for any of them.
+
+**Blast-radius check (item 23), before approving any comparator re-run**:
+re-ran `consensus_filter.py`'s own `vote()` over the same, already-existing
+per-tool output files used to produce each cell line's real
+`circompara2_4tools.bed` (CirComPara2_4tools simulation, `--min-tools 2
+--slop 10 --min-bsj 2 --max-junction-ratio 999`) -- confirmed each
+recomputation reproduces the existing file's line count exactly (1030 /
+2672 / 2964 for Hs68 / NCI-H23 / SW480), then asked: of the loci where
+find_circ is exactly one of only two supporting tools (removing it would
+drop the locus below the `min_tools=2` threshold entirely), how many are
+ALSO in circDEX's own call set (`our_method.bed`)? That second number is
+the only one that could affect Table 5's "circDEX call set is contained
+within the CirComPara2_4tools call set" claim.
+
+| Cell line | CirComPara2_4tools call-set size | loci depending on find_circ (1-of-2) | of those, also in circDEX's own call set |
+|---|---|---|---|
+| Hs68 | 1030 | 137 | **0** |
+| NCI-H23 | 2672 | 50 | **0** |
+| SW480 | 2964 | 60 | **0** |
+
+Zero for all three. Per the project's own decision rule for this check:
+zero means the containment claim is unaffected regardless of which
+direction find_circ's miscalibration pushes the CirComPara2_4tools call
+set (larger from over-calling, smaller from under-calling) -- there is no
+locus where it matters to that specific sentence in the paper. **No
+comparator re-run was needed or performed.** This closes the
+investigation that started from the 273-line find_circ patch audit: the
+patch is real, documented, sha256-verified, and has two non-mechanical
+hunks with a confirmed behavioral effect on find_circ's own internal
+breakpoint filtering -- but that effect has zero measured impact on the
+one paper claim (Table 5's containment relationship) that touches
+find_circ's output at all.
