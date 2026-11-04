@@ -48,12 +48,27 @@ def load_merged(gse):
     return merged
 
 
+# GSE133998 and GSE143797 predate the interaction_queried column. Verified
+# (item 27, not assumed) by reading their actual biomarker_candidates.tsv:
+# n_mirna/n_rbp are present for every row (no NaN) and non-zero for the
+# large majority (72/79, 74/79 and 50/56, 51/56 respectively) -- a pattern
+# consistent with "this file predates the top-N-only query restriction and
+# every candidate was queried," not "these were never queried." The column
+# is absent, not the data; defaulting to interaction_queried=False here
+# would silently zero out the one component (mirna) that turned out to
+# carry the analysis's only consistent cross-dataset signal.
+_FULLY_QUERIED_LEGACY_DATASETS = {"GSE133998", "GSE143797"}
+
+
 def load_bm(gse):
     d = f"{BASE}/{gse}_results"
     bm = pd.read_csv(f"{d}/de/biomarker_candidates.tsv", sep="\t")
     if "interaction_queried" not in bm.columns:
         bm = bm.copy()
-        bm["interaction_queried"] = False
+        if gse in _FULLY_QUERIED_LEGACY_DATASETS:
+            bm["interaction_queried"] = True
+        else:
+            bm["interaction_queried"] = False
     return bm
 
 
@@ -161,6 +176,22 @@ def main():
     u_stat, u_p = stats.mannwhitneyu(pool["Type_I"], pool["Type_II"], alternative="two-sided")
     print(f"  Mann-Whitney U (pooled Type_I vs Type_II): U={u_stat:.1f}, p={u_p:.6g}")
 
+    # Pooling can be driven by cross-dataset composition (size, depth) rather
+    # than the within-dataset Type_I vs Type_II difference -- same risk the
+    # per-dataset + signed-rank treatment exists for biomarker_score/
+    # components. confidence_score IS pool-comparable (not per-dataset
+    # normalized), but that doesn't make the pooled test immune to a
+    # composition artifact; run the same paired check as (c) on it too and
+    # compare the two answers directly, since they can legitimately disagree.
+    conf_result = per_dataset_two_group(merged_cache, "Type", "confidence_score", "Type_I", "Type_II")
+    conf_signed_rank = signed_rank_summary(conf_result)
+    print("\nPer-dataset confidence_score Type_I vs Type_II (paired check, same method as (c)):")
+    for gse in DATASETS:
+        print(f"  {gse:15s} {conf_result[gse]}")
+    print(f"  {conf_signed_rank}")
+    print(f"  Pooled MWU p={u_p:.6g} vs paired Wilcoxon signed-rank p="
+          f"{conf_signed_rank.get('wilcoxon_p', 'n/a')} -- compare directly, do not average.")
+
     print("\n" + "=" * 70)
     print("(c) biomarker_score -- per-dataset Type_I vs Type_II, then signed-rank across datasets")
     print("=" * 70)
@@ -201,6 +232,36 @@ def main():
         odds, p = stats.fisher_exact([[k1, n1 - k1], [k2, n2 - k2]])
         print(f"  {gse:15s} Type_I: {k1}/{n1} ({k1/n1:.3f})  Type_II: {k2}/{n2} ({k2/n2:.3f})  "
               f"Fisher p={p:.6g} odds={odds:.3f}")
+
+    # ── (f) selection-bias check for the mirna/rbp comparison ─────────────
+    # interaction_queried is set by predict_interactions.py's top-N-by-p-value
+    # union (see that script's --de-edger/--de-deseq2/--de-limma union mode).
+    # Type_II's p-values are structurally smaller (it requires significance
+    # on BOTH the BSJ ratio test and the independent FSJ test), so a larger
+    # share of Type_II candidates can end up inside that top-N net than of
+    # Type_I -- making the mirna/rbp comparison implicitly "typical Type_II"
+    # vs "only the most significant slice of Type_I," not "Type_II vs
+    # Type_I" in general. Checked directly: per-dataset queried-rate by
+    # Type, and the p-value distribution *within* the queried subset by
+    # Type (if queried Type_I's p-values are already as small as queried
+    # Type_II's, the two groups being compared are not differentially
+    # filtered by significance even though the raw pools are).
+    print("\n" + "=" * 70)
+    print("(f) Selection-bias check: queried-rate and within-queried p-value by Type")
+    print("=" * 70)
+    for gse in DATASETS:
+        bm = bm_cache[gse]
+        row = {}
+        for t in ["Type_I", "Type_II"]:
+            sub = bm.loc[bm["Type"] == t]
+            n_total = len(sub)
+            n_queried = int(sub["interaction_queried"].sum())
+            rate = round(n_queried / n_total, 4) if n_total else None
+            p_queried = sub.loc[sub["interaction_queried"], SIG_COL]
+            row[t] = {"n_total": n_total, "n_queried": n_queried, "queried_rate": rate,
+                      "p_within_queried": describe(p_queried)}
+        print(f"  {gse:15s} I={row['Type_I']}")
+        print(f"  {'':15s} II={row['Type_II']}")
 
 
 if __name__ == "__main__":
