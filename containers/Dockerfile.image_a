@@ -1,0 +1,112 @@
+# Image A: the paper-reproduction image. Carries Table 3's reproducibility
+# claim -- must match Table 3 exactly. NOT the platform's own, forward-moving
+# container (that is the root Dockerfile / Image B; see build_notes.md's
+# "Two images, two different jobs" section for why these are deliberately
+# separate and why Image A is NOT expected to track Image B's version bumps).
+#
+# Local build only. Do not push, do not tag to any registry. Local tag for
+# identification: thesis-2026-07 (deliberately not 1.0.2 -- this is not a
+# successor/patch release of 1.0.1, it is a frozen artifact for a different
+# purpose; see build_notes.md).
+
+# Base pinned by DIGEST, not tag. A tag can be re-pushed to point at a
+# different image later (this project's own Table 3 audit found exactly
+# that risk elsewhere); a digest cannot. Digest confirmed via the Docker
+# Hub Registry API for continuumio/miniconda3:23.10.0-1 on 2026-11-04 --
+# same base the root Dockerfile (Image B) already uses, same debian
+# snapshot-mirror fix needed for the same reason (see below).
+FROM continuumio/miniconda3@sha256:5ee0ed861bce8f67acb0a3e8a416891781db54302d93bf20a3c6301d7683d7b9
+
+LABEL maintainer="choukaihsuan" \
+      description="circDEX paper-reproduction image (Image A) -- pinned to paper Table 3, frozen, not iterated" \
+      org.opencontainers.image.source="https://github.com/choukaihsuan/circRNA_agent" \
+      org.opencontainers.image.base.digest="sha256:5ee0ed861bce8f67acb0a3e8a416891781db54302d93bf20a3c6301d7683d7b9" \
+      circdex.image.purpose="paper-reproduction (Table 3), not platform iteration -- see Image B for that" \
+      circdex.license.find_circ="This image contains find_circ (GPLv3), fetched from upstream commit 8655dca5 and patched for Python 3 compatibility. circDEX itself is licensed MIT; the find_circ component is distributed under its own GPLv3 license, and the modifications applied to it are published as patches/find_circ_py3.patch in this repository as the corresponding source for that component."
+
+# ── System dependencies ───────────────────────────────────────────────────────
+# Debian bullseye's live security mirror has pruned old point-release .debs
+# (bullseye is past normal LTS support), causing 404s on `apt-get update`.
+# Pin to the snapshot.debian.org mirror matching this base image's build date
+# instead. This affects only OS-level packages, none of which are in Table 3;
+# it has no bearing on the conda env versions below. NOTE: this apt layer is
+# NOT fully reproducible in the same sense as the conda/pip layers below --
+# snapshot.debian.org is a best-effort archive, not a content-addressed
+# store with a checked hash the way the find_circ fetch below is. Kept to
+# the absolute minimum this image needs (curl + patch, both required only
+# for the find_circ step; no JDK, no build-essential, no git) to limit how
+# much of the image depends on this weaker guarantee.
+RUN sed -i \
+        -e 's|deb http://deb.debian.org/debian bullseye main|deb http://snapshot.debian.org/archive/debian/20231030T000000Z bullseye main|' \
+        -e 's|deb http://deb.debian.org/debian-security bullseye-security main|deb http://snapshot.debian.org/archive/debian-security/20231030T000000Z bullseye-security main|' \
+        -e 's|deb http://deb.debian.org/debian bullseye-updates main|deb http://snapshot.debian.org/archive/debian/20231030T000000Z bullseye-updates main|' \
+        /etc/apt/sources.list \
+    && printf 'Acquire::Check-Valid-Until "false";\n' > /etc/apt/apt.conf.d/99snapshot
+
+RUN echo 'Acquire::Retries "6";' > /etc/apt/apt.conf.d/99retries \
+    && apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        patch \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# ── Layer 1: conda, from the bit-for-bit explicit spec ────────────────────────
+# envs/ciriquant_published.explicit.txt -- a `conda list --explicit` capture
+# of the actual server env that produced all 19 published datasets, not a
+# fresh solve (see that file's own header and build_notes.md's "Image A"
+# section for the canary test confirming it still resolves, and for why no
+# environment.yml for this env has ever existed to solve from in the first
+# place).
+COPY envs/ciriquant_published.explicit.txt /tmp/ciriquant_published.explicit.txt
+RUN conda create --name ciriquant --file /tmp/ciriquant_published.explicit.txt --yes \
+    && conda clean -afy \
+    && rm /tmp/ciriquant_published.explicit.txt
+
+# ── Layer 2: pip-only packages ─────────────────────────────────────────────────
+# `conda list --explicit` never captures pip-installed packages -- Flask
+# among them. containers/pip-only-requirements.txt is the other half of
+# Image A's recipe (see build_notes.md: "Image A's recipe is two files, not
+# one"), re-verified against the server's live `pip list --format=freeze`
+# on 2026-10-31 with zero drift. --no-deps: dependency versions are already
+# pinned by layer 1; letting pip resolve its own would silently drift from
+# the verified set.
+COPY containers/pip-only-requirements.txt /tmp/pip-only-requirements.txt
+RUN /opt/conda/envs/ciriquant/bin/pip install --no-deps -r /tmp/pip-only-requirements.txt \
+    && rm /tmp/pip-only-requirements.txt
+
+# ── Layer 3: find_circ, fetched + verified + patched at build time ───────────
+# Never vendored (find_circ is GPLv3, this repo is MIT -- see
+# patches/find_circ_py3.patch's own header and the LABEL above). Both sha256
+# checks in build_image_a_find_circ.sh are HARD BUILD FAILURES, not
+# warnings -- a warning in a build log is something nobody reads, and either
+# mismatch would mean this image's find_circ is not actually the file that
+# produced the 19 published datasets.
+# Preserves the script's own expected layout (patches/ as a sibling of
+# containers/) rather than editing it for the build -- the script's
+# "${SCRIPT_DIR}/../patches/find_circ_py3.patch" lookup then just works
+# unmodified, no sed/path rewriting to get wrong.
+COPY patches/find_circ_py3.patch /app/patches/find_circ_py3.patch
+COPY containers/build_image_a_find_circ.sh /app/containers/build_image_a_find_circ.sh
+RUN bash /app/containers/build_image_a_find_circ.sh /opt/conda/envs/ciriquant/bin \
+    && rm -rf /app
+
+# ── PATH & Java ───────────────────────────────────────────────────────────────
+ENV PATH="/opt/conda/envs/ciriquant/bin:${PATH}"
+ENV CONDA_DEFAULT_ENV="ciriquant"
+
+# ── Verify key tools are importable/executable (does not replace the
+#    external 28/28 Table 3 re-check run against this built image) ──────────
+RUN CIRIquant --version 2>&1 | grep -i 'ciriquant\|version' \
+    && (DCC --version 2>&1 || DCC 2>&1 | head -3 || true) \
+    && STAR --version 2>&1 | head -1 \
+    && hisat2 --version 2>&1 | head -1 \
+    && bwa 2>&1 | head -3 \
+    && samtools --version 2>&1 | head -1 \
+    && snakemake --version \
+    && python -c "import flask; print('flask', flask.__version__)" \
+    && find_circ.py --version \
+    && Rscript -e "library(edgeR);  cat('edgeR OK\n')" \
+    && Rscript -e "library(DESeq2); cat('DESeq2 OK\n')"
+
+WORKDIR /pipeline
+
+CMD ["/bin/bash"]

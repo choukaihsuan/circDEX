@@ -404,3 +404,42 @@ than comparative," so disclosure (noting find_circ's patch status in the
 methods text) rather than a numeric change is the appropriate response for
 that version, consistent with how this project has handled every other
 already-submitted-paper finding this session.
+
+## Image A built and verified against the real Docker image (2026-11-04)
+
+`containers/Dockerfile.image_a` -- separate from the root `Dockerfile`
+(Image B) -- built locally as `circdex-image-a:thesis-2026-07`. Local tag
+only; not pushed, not tagged to any registry. Deliberately not named
+`1.0.2` -- this is not a successor release of `1.0.1`, it is a frozen
+artifact for a different purpose (see "Two images" above).
+
+- Base pinned by digest (`sha256:5ee0ed861bce...`), not tag, confirmed via
+  the Docker Hub Registry API for `continuumio/miniconda3:23.10.0-1` on
+  2026-11-04 -- the same base Image B already uses.
+- Layer order: digest base → `conda create` from
+  `envs/ciriquant_published.explicit.txt` → `pip install` from
+  `containers/pip-only-requirements.txt` → `build_image_a_find_circ.sh`'s
+  two hard sha256 gates. apt usage kept to the minimum this image actually
+  needs (`curl` + `patch`, both only for the find_circ step) and the
+  Dockerfile says explicitly that this one layer is not reproducible in
+  the same sense as the conda/pip/find_circ layers (snapshot.debian.org is
+  a best-effort archive, not a content-addressed store with a checked
+  hash). The apt step hit transient 504/503 gateway timeouts from
+  snapshot.debian.org on the first two build attempts -- added
+  `Acquire::Retries "6"`, succeeded on the next attempt; not a Dockerfile
+  defect, a flaky mirror on the day of the build.
+- `LABEL` carries the GPLv3 disclosure (verbatim text from the "find_circ
+  license disclosure" section above) and
+  `org.opencontainers.image.source` pointing at this repo.
+- Both sha256 gates ran and passed DURING the real build (not a
+  conda-env-equivalent check): `upstream sha256 OK` then `patched sha256
+  OK -- bit-identical to the server's find_circ.py`, confirmed from the
+  build log itself, not inferred.
+- **28/28 re-run against the actual built Docker image** (`docker run`,
+  not the conda-env equivalent tested earlier): every Table 3 row matches,
+  including `find_circ.py`'s sha256 inside the running container
+  (`28a3cb9e...`) -- bit-identical to the server. No difference found
+  between the conda-env equivalent and the real image for this check.
+- `docker image inspect` confirms empty `RepoDigests` (no registry
+  interaction occurred) and the image exists only in this machine's local
+  Docker daemon.
