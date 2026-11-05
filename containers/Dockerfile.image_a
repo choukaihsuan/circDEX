@@ -19,7 +19,7 @@ FROM continuumio/miniconda3@sha256:5ee0ed861bce8f67acb0a3e8a416891781db54302d93b
 
 LABEL maintainer="choukaihsuan" \
       description="circDEX paper-reproduction image (Image A) -- pinned to paper Table 3, frozen, not iterated" \
-      org.opencontainers.image.source="https://github.com/choukaihsuan/circRNA_agent" \
+      org.opencontainers.image.source="https://github.com/choukaihsuan/circDEX" \
       org.opencontainers.image.base.digest="sha256:5ee0ed861bce8f67acb0a3e8a416891781db54302d93bf20a3c6301d7683d7b9" \
       circdex.image.purpose="paper-reproduction (Table 3), not platform iteration -- see Image B for that" \
       circdex.license.find_circ="This image contains find_circ (GPLv3), fetched from upstream commit 8655dca5 and patched for Python 3 compatibility. circDEX itself is licensed MIT; the find_circ component is distributed under its own GPLv3 license, and the modifications applied to it are published as patches/find_circ_py3.patch in this repository as the corresponding source for that component."
