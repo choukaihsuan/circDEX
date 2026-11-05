@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Benchmark configuration
-# Run from circRNA_agent/ :
+# Run from circDEX/ :
 #   snakemake --snakefile benchmark/Snakefile \
 #             --configfile benchmark/config_benchmark.yaml \
 #             --cores 8

@@ -4,7 +4,7 @@
 # logging before/after each dataset and intermediate-file cleanup once a
 # dataset's accuracy_summary.tsv is safely produced.
 #
-# Usage (from circRNA_agent/ root, inside conda env ciriquant):
+# Usage (from circDEX/ root, inside conda env ciriquant):
 #   setsid nohup bash benchmark/run_benchmark_multi.sh > logs/bench_multi/run_all.log 2>&1 < /dev/null &
 #   disown
 #
@@ -32,14 +32,19 @@ for ds in "${DATASETS[@]}"; do
     echo "=============================================================="
     log_disk "BEFORE $ds"
 
+    # 2026-10-06: cores raised 8->16 so the two per-dataset downloads (each
+    # now threads:8, aria2c -x12 -s12) can run in parallel instead of being
+    # serialized -- halves download wall time. 2x12=24 S3 connections is
+    # still well inside CLAUDE.md's documented <=48-connection safe ceiling.
     snakemake \
         --snakefile benchmark/Snakefile_multi \
         --configfile benchmark/config_benchmark_multi.yaml \
-        --cores 8 \
+        --cores 16 \
         --resources mem_gb=60 \
         --keep-going \
         --rerun-incomplete \
-        "results/benchmark_multi/${ds}/accuracy_summary.tsv" \
+        --rerun-triggers mtime \
+        -- "results/benchmark_multi/${ds}/accuracy_summary.tsv" \
         2>&1 | tee -a "$LOGDIR/snakemake_${ds}.log"
 
     status=$?
@@ -67,6 +72,10 @@ for p in (d["raw_dir"], d["trimmed_dir"]):
         shutil.rmtree(p, ignore_errors=True)
         print(f"[cleanup] removed {p}")
 res_base = f"results/benchmark_multi/{ds}"
+for p in (f"{res_base}/.raw", f"{res_base}/.trim", f"{res_base}/.sub"):
+    if os.path.isdir(p):
+        shutil.rmtree(p, ignore_errors=True)
+        print(f"[cleanup] removed {p}")
 for srr in [d["total_rna"]] + d["rnaser"]:
     for sub in ("Aligned.sortedByCoord.out.bam", "Aligned.sortedByCoord.out.bam.bai",
                 "star_tmp", "mate1", "mate2",

@@ -9,7 +9,7 @@ Benchmark Snakefile – circRNA pipeline comparison
   2. conda env ciriquant 已啟動
   （GSE55872 下載與 trim 已整合進本 Snakefile，無需手動準備）
 
-執行方式（從 circRNA_agent/ 根目錄執行）：
+執行方式（從 circDEX/ 根目錄執行）：
   conda activate ciriquant
   snakemake \\
       --snakefile benchmark/Snakefile \\
@@ -45,7 +45,7 @@ RNASER_SRRS = GS55["rnaser"]                 # [SRR444974, SRR445016]
 ALL_GSE55   = [TOTAL_SRR] + RNASER_SRRS
 
 RESULTS    = BENCH["output_dir"]
-# workflow.snakefile is benchmark/Snakefile; go up one level to get circRNA_agent root
+# workflow.snakefile is benchmark/Snakefile; go up one level to get circDEX root
 AGENT_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(workflow.snakefile)))
 
 # nf-core 3-tool simulation prerequisites

@@ -136,8 +136,8 @@ The fastest way to see the pipeline work end-to-end is the Web UI's one-click
 GEO launcher:
 
 ```bash
-git clone <this-repo> circRNA_agent
-cd circRNA_agent
+git clone <this-repo> circDEX
+cd circDEX
 
 # 1. Activate an environment with the dependencies above (conda or container)
 conda activate ciriquant   # or: your equivalent environment
@@ -284,7 +284,7 @@ Web UI's forms.
 ### 1. Starting the Web UI
 
 ```bash
-cd circRNA_agent
+cd circDEX
 conda activate ciriquant   # or your environment name
 python scripts/web_ui.py --host 0.0.0.0 --port 5000
 ```
@@ -621,7 +621,7 @@ snakemake \
 ## Project Structure
 
 ```
-circRNA_agent/
+circDEX/
 ├── config.yaml                  # active run configuration
 ├── config/
 │   ├── ciriquant.yaml           # CIRIquant tool paths
